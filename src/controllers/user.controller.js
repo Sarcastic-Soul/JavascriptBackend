@@ -2,6 +2,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/fileUpload.js";
+import { deleteFileOnCloudinary } from "../utils/deleteUpload.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
@@ -124,7 +125,7 @@ const loginUser = asyncHandler(async (req, res) => {
 
     return res.status(200)
         .cookie("accessToken", accessToken, options)
-        .cookie("refreshToken", options)
+        .cookie("refreshToken", refreshToken, options)
         .json(new ApiResponse(
             200, { user: loggedInUser, accessToken, refreshToken },
             "User logged in Successfully"
@@ -202,7 +203,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 const changeCurrentPassword = asyncHandler(async (req, res) => {
     const { oldPassword, newPassword } = req.body
 
-    const user = User.findById(req.user?._id)
+    const user = await User.findById(req.user?._id)
     const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
 
     if (!isPasswordCorrect) {
@@ -251,25 +252,36 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Avatar file is missing")
     }
 
-    //TODO: delete old image/avatar - utiity funtion
+    const user = await User.findById(req.user?._id);
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    const oldAvatar = user.avatar;
 
     const avatar = await uploadOnCloudinary(avatarLocalPath)
 
     if (!avatar.url) {
-        throw new ApiError(400, "Error while uploading avatar")
+        throw new ApiError(400, "Error while uploading on avatar")
+
     }
 
-    const user = await User.findByIdAndUpdate(
+    const updatedUser = await User.findByIdAndUpdate(
         req.user?._id,
         {
-            $set: { avatar: avatar.url }
+            $set: {
+                avatar: avatar.url
+            }
         },
         { new: true }
     ).select("-password")
 
+    await deleteFileOnCloudinary(oldAvatar)
+
     return res.status(200)
         .json(
-            new ApiError(200, user, "Avatar updated succesfully")
+            new ApiResponse(200, updatedUser, "Avatar image updated successfully")
         )
 })
 
@@ -280,13 +292,21 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Avatar file is missing")
     }
 
+    const user = await User.findById(req.user?._id);
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    const oldCoverImage = user.coverImage;
+
     const coverImage = await uploadOnCloudinary(coverImageLocalPath)
 
     if (!coverImage.url) {
         throw new ApiError(400, "Error while uploading avatar")
     }
 
-    const user = await User.findByIdAndUpdate(
+    const updatedUser = await User.findByIdAndUpdate(
         req.user?._id,
         {
             $set: { coverImage: coverImage.url }
@@ -294,20 +314,22 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
         { new: true }
     ).select("-password")
 
+    await deleteFileOnCloudinary(oldCoverImage)
+
     return res.status(200)
         .json(
-            new ApiError(200, user, "Cover image updated succesfully")
+            new ApiError(200, updatedUser, "Cover image updated succesfully")
         )
 })
 
-const getUserChannelProfile = asyncHandler(async (req, res) => {
-    const { username } = req.params
+const getUserChannelProfile = asyncHandler(async(req, res) => {
+    const {username} = req.params
 
     if (!username?.trim()) {
         throw new ApiError(400, "username is missing")
     }
 
-    // MogoDB pipeline
+    //MongoDB pipeline
     const channel = await User.aggregate([
         {
             $match: {
@@ -316,29 +338,31 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         },
         {
             $lookup: {
-                from: "subscription",
+                from: "subscriptions",
                 localField: "_id",
                 foreignField: "channel",
                 as: "subscribers"
             }
         },
         {
-            $lookup: "subscriptions",
-            localField: "_id",
-            foreignField: "subscriber",
-            as: "subscribedTo"
+            $lookup: {
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "subscriber",
+                as: "subscribedTo"
+            }
         },
         {
             $addFields: {
                 subscribersCount: {
-                    $size: "$subscribers",
+                    $size: "$subscribers"
                 },
-                channelSubscribedToCount: {
+                channelsSubscribedToCount: {
                     $size: "$subscribedTo"
                 },
                 isSubscribed: {
                     $cond: {
-                        if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+                        if: {$in: [req.user?._id, "$subscribers.subscriber"]},
                         then: true,
                         else: false
                     }
@@ -350,23 +374,24 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
                 fullName: 1,
                 username: 1,
                 subscribersCount: 1,
-                channelSubscribedToCount: 1,
+                channelsSubscribedToCount: 1,
                 isSubscribed: 1,
                 avatar: 1,
                 coverImage: 1,
                 email: 1
+
             }
         }
     ])
 
     if (!channel?.length) {
-        throw ApiError(404, "Channel does not exist")
+        throw new ApiError(404, "channel does not exists")
     }
 
     return res.status(200)
-        .json(
-            new ApiResponse(200, channel[0], "User channel fetched successfully")
-        )
+    .json(
+        new ApiResponse(200, channel[0], "User channel fetched successfully")
+    )
 })
 
 const getWatchHistory = asyncHandler(async (req, res) => {
