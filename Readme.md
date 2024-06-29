@@ -1,6 +1,6 @@
 # VideoTube
 
-Welcome to **VideoTube**, a project inspired by the Chai Aur Backend Series tutorial on backend development with JavaScript.
+Welcome to **VideoTube**, a project inspired by the *Chai Aur Backend Series tutorial* on backend development with JavaScript.
 
 - [Watch the Tutorial Playlist](https://www.youtube.com/watch?v=EH3vGeqeIAo&list=PLu71SKxNbfoBGh_8p_NS-ZAh6v7HhYqHW)
 
